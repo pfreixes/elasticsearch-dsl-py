@@ -16,15 +16,6 @@ async def test_search_execute(dummy_response):
     assert res.success()
 
 @pytest.mark.asyncio
-async def test_search_execute_future(dummy_response):
-    client = Mock()
-    client.search.return_value = asyncio.Future()
-    client.search.return_value.set_result(dummy_response)
-    s = search.Search(using=client)
-    res = await s.execute()
-    assert res.success()
-
-@pytest.mark.asyncio
 async def test_search_execute_uses_cache():
     o = object()
     client = Mock()

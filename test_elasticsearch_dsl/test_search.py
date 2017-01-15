@@ -8,7 +8,6 @@ ASYNC_SUPPORTED = sys.version_info >= (3, 5)
 if ASYNC_SUPPORTED:
     from . import _test_async
     test_execute_async = _test_async.test_search_execute
-    test_execute_async_future = _test_async.test_search_execute_future
     test_execute_async_uses_cache = _test_async.test_search_execute_uses_cache
 
 

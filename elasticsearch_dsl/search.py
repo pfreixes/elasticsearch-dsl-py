@@ -599,7 +599,7 @@ class Search(Request):
                 )
 
                 if inspect.isawaitable(response):
-                    f_res = response if isinstance(response, Future) else ensure_future(response)
+                    f_res = ensure_future(response)
                     self._response_async = True
                     f = Future()
 
