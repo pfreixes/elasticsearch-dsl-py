@@ -1,6 +1,9 @@
+import sys
 import copy
+import inspect
 import collections
 
+from asyncio import Future
 from six import iteritems, string_types
 
 from elasticsearch.helpers import scan
@@ -11,6 +14,14 @@ from .aggs import A, AggBase
 from .utils import DslBase
 from .response import Response, Hit, SuggestResponse
 from .connections import connections
+
+ASYNC_SUPPORTED = sys.version_info >= (3, 5)
+
+if ASYNC_SUPPORTED:
+    # since PY35 ElasticSearch-DSL support asynchronous clients
+    import inspect
+    from asyncio import Future, ensure_future
+
 
 class QueryProxy(object):
     """
@@ -220,6 +231,7 @@ class Search(Request):
         self._suggest = {}
         self._script_fields = {}
         self._response_class = Response
+        self._response_async = False
 
         self._query_proxy = QueryProxy(self, 'query')
         self._post_filter_proxy = QueryProxy(self, 'post_filter')
@@ -569,26 +581,73 @@ class Search(Request):
             **self._params
         )['count']
 
-    def execute(self, ignore_cache=False):
-        """
-        Execute the search and return an instance of ``Response`` wrapping all
-        the data.
+    if ASYNC_SUPPORTED:
+        def execute(self, ignore_cache=False):
+            """
+            Execute the search and return an instance of ``Response`` wrapping all
+            the data.
 
-        :arg response_class: optional subclass of ``Response`` to use instead.
-        """
-        if ignore_cache or not hasattr(self, '_response'):
-            es = connections.get_connection(self._using)
-
-            self._response = self._response_class(
-                self,
-                es.search(
+            :arg response_class: optional subclass of ``Response`` to use instead.
+            """
+            if ignore_cache or not hasattr(self, '_response'):
+                es = connections.get_connection(self._using)
+                response = es.search(
                     index=self._index,
                     doc_type=self._doc_type,
                     body=self.to_dict(),
                     **self._params
                 )
-            )
-        return self._response
+
+                if inspect.isawaitable(response):
+                    f_res = response if isinstance(response, Future) else ensure_future(response)
+                    self._response_async = True
+                    f = Future()
+
+                    def _build_response(task):
+                        self._response = self._response_class(
+                            self,
+                            f_res.result()
+                        )
+                        f.set_result(self._response)
+
+                    f_res.add_done_callback(_build_response)
+                    return f
+                else:
+                    self._response_async = False
+                    self._response = self._response_class(
+                        self,
+                        response
+                    )
+                    return self._response
+
+            if self._response_async:
+                f = Future()
+                f.set_result(self._response)
+                return f
+            else:
+                return self._response
+    else:
+        def execute(self, ignore_cache=False):
+            """
+            Execute the search and return an instance of ``Response`` wrapping all
+            the data.
+
+            :arg response_class: optional subclass of ``Response`` to use instead.
+            """
+            if ignore_cache or not hasattr(self, '_response'):
+                es = connections.get_connection(self._using)
+                response = es.search(
+                    index=self._index,
+                    doc_type=self._doc_type,
+                    body=self.to_dict(),
+                    **self._params
+                )
+
+                self._response = self._response_class(
+                    self,
+                    response
+                )
+            return self._response
 
     def execute_suggest(self):
         """

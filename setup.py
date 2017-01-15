@@ -16,6 +16,7 @@ install_requires = [
     'python-dateutil',
     'elasticsearch>=5.0.0,<6.0.0'
 ]
+
 tests_require = [
     "mock",
     "pytest",
@@ -26,6 +27,11 @@ tests_require = [
 # use external unittest for 2.6
 if sys.version_info[:2] == (2, 6):
     tests_require.append('unittest2')
+
+if sys.version_info >= (3, 5):
+    tests_require.append('pytest-asyncio')
+    tests_require.append('asynctest')
+
 
 setup(
     name = "elasticsearch-dsl",
