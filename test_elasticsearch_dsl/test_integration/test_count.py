@@ -1,4 +1,10 @@
 from elasticsearch_dsl.search import Search, Q
+from elasticsearch_dsl.async import ASYNC_SUPPORTED
+
+
+if ASYNC_SUPPORTED:
+    from . import _test_integration_async
+    test_count_async = _test_integration_async.test_count
 
 def test_count_all(data_client):
     s = Search(using=data_client).index('git')

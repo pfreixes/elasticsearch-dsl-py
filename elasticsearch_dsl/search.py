@@ -2,7 +2,6 @@ import copy
 import inspect
 import collections
 
-from asyncio import Future
 from six import iteritems, string_types
 
 from elasticsearch.helpers import scan
@@ -13,8 +12,7 @@ from .aggs import A, AggBase
 from .utils import DslBase
 from .response import Response, Hit, SuggestResponse
 from .connections import connections
-
-from .async import isawaitable, Future, ensure_future
+from .async import isawaitable, future_response, Future
 
 class QueryProxy(object):
     """
@@ -561,18 +559,30 @@ class Search(Request):
         only the actual number is returned.
         """
         if hasattr(self, '_response'):
-            return self._response.hits.total
+            if self._response_async:
+                f = Future()
+                f.set_result(self._response.hits.total)
+                return f
+            else:
+                return self._response.hits.total
 
         es = connections.get_connection(self._using)
 
         d = self.to_dict(count=True)
         # TODO: failed shards detection
-        return es.count(
+        response = es.count(
             index=self._index,
             doc_type=self._doc_type,
             body=d,
             **self._params
-        )['count']
+        )
+
+        if isawaitable(response):
+            return future_response(response, lambda r: r['count'])
+        else:
+            return response['count']
+
+
 
     def execute(self, ignore_cache=False):
         """
@@ -591,19 +601,14 @@ class Search(Request):
             )
 
             if isawaitable(response):
-                f_res = ensure_future(response)
                 self._response_async = True
-                f = Future()
-
-                def _build_response(task):
+                def _build_response(result):
                     self._response = self._response_class(
                         self,
-                        f_res.result()
+                        result
                     )
-                    f.set_result(self._response)
-
-                f_res.add_done_callback(_build_response)
-                return f
+                    return self._response
+                return future_response(response, _build_response)
             else:
                 self._response_async = False
                 self._response = self._response_class(
@@ -625,13 +630,17 @@ class Search(Request):
         not relevant, including ``query`` and ``doc_type``.
         """
         es = connections.get_connection(self._using)
-        return SuggestResponse(
-            es.suggest(
-                index=self._index,
-                body=self._suggest,
-                **self._params
-            )
+        response = es.suggest(
+            index=self._index,
+            body=self._suggest,
+            **self._params
         )
+
+        if isawaitable(response):
+            return future_response(response, lambda r: SuggestResponse(r))
+        else:
+            return SuggestResponse(response)
+
 
     def scan(self):
         """
@@ -645,6 +654,7 @@ class Search(Request):
         """
         es = connections.get_connection(self._using)
 
+        #TODO: implement scan helper in elasticsearch_async
         for hit in scan(
                 es,
                 query=self.to_dict(),
@@ -665,6 +675,7 @@ class MultiSearch(Request):
     def __init__(self, **kwargs):
         super(MultiSearch, self).__init__(**kwargs)
         self._searches = []
+        self._response_async = False
 
     def __getitem__(self, key):
         return self._searches[key]
@@ -711,23 +722,36 @@ class MultiSearch(Request):
         if ignore_cache or not hasattr(self, '_response'):
             es = connections.get_connection(self._using)
 
-            responses = es.msearch(
+            response = es.msearch(
                 index=self._index,
                 doc_type=self._doc_type,
                 body=self.to_dict(),
                 **self._params
             )
 
-            out = []
-            for s, r in zip(self._searches, responses['responses']):
-                if r.get('error', False):
-                    if raise_on_error:
-                        raise TransportError('N/A', r['error']['type'], r['error'])
-                    r = None
-                else:
-                    r = Response(s, r)
-                out.append(r)
+            def _build_response(data):
+                out = []
+                for s, r in zip(self._searches, data['responses']):
+                    if r.get('error', False):
+                        if raise_on_error:
+                            raise TransportError('N/A', r['error']['type'], r['error'])
+                        r = None
+                    else:
+                        r = Response(s, r)
+                    out.append(r)
+                self._response = out
+                return self._response
 
-            self._response = out
+            if isawaitable(response):
+                self._response_async = True
+                return future_response(response, _build_response)
+            else:
+                return _build_response(response)
 
-        return self._response
+        if self._response_async:
+            f = Future()
+            f.set_result(self._response)
+            return f
+        else:
+            return self._response
+

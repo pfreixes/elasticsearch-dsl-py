@@ -29,6 +29,7 @@ if sys.version_info[:2] == (2, 6):
     tests_require.append('unittest2')
 
 if sys.version_info >= (3, 5):
+    install_requires.append('elasticsearch-async>=5.0.0,<6.0.0')
     tests_require.append('pytest-asyncio')
     tests_require.append('asynctest')
 

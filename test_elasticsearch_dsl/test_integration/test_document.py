@@ -3,33 +3,22 @@ from pytz import timezone
 
 from elasticsearch import ConflictError, NotFoundError, RequestError
 
-from elasticsearch_dsl import DocType, Date, Text, Keyword, construct_field, Mapping
+from elasticsearch_dsl import DocType, Date
 from elasticsearch_dsl.utils import AttrList
+from elasticsearch_dsl.async import ASYNC_SUPPORTED
 
 from pytest import raises
 
-user_field = construct_field('object')
-user_field.field('name', 'text', fields={'raw': construct_field('keyword')})
+from .utils import Repository, Commit
+from .utils import COMMIT_DOCS_WITH_MISSING, COMMIT_DOCS_WITH_ERRORS
 
-class Repository(DocType):
-    owner = user_field
-    created_at = Date()
-    description = Text(analyzer='snowball')
-    tags = Keyword()
+if ASYNC_SUPPORTED:
+    from . import _test_integration_async
+    test_get_async = _test_integration_async.test_get
+    test_mget_async = _test_integration_async.test_mget
+    test_update_async = _test_integration_async.test_update
+    test_save_async = _test_integration_async.test_save
 
-    class Meta:
-        index = 'git'
-        doc_type = 'repos'
-
-class Commit(DocType):
-    committed_date = Date()
-    authored_date = Date()
-    description = Text(analyzer='snowball')
-
-    class Meta:
-        index = 'git'
-        mapping = Mapping('commits')
-        mapping.meta('_parent', type='repos')
 
 def test_parent_type_is_exposed():
     assert Commit._doc_type.parent == 'repos'
@@ -69,19 +58,6 @@ def test_save_with_tz_date(data_client):
     first_commit = Commit.get(id='3ca6e1e73a071a705b4babd2f581c91a2a3e5037', parent='elasticsearch-dsl-py')
     assert tzinfo.localize(datetime(2014, 5, 2, 13, 47, 19, 123456)) == first_commit.committed_date
 
-COMMIT_DOCS_WITH_MISSING = [
-    {'parent': 'elasticsearch-dsl-py', '_id': '0'},                                         # Missing
-    {'parent': 'elasticsearch-dsl-py', '_id': '3ca6e1e73a071a705b4babd2f581c91a2a3e5037'},  # Existing
-    {'parent': 'elasticsearch-dsl-py', '_id': 'f'},                                         # Missing
-    {'parent': 'elasticsearch-dsl-py', '_id': 'eb3e543323f189fd7b698e66295427204fff5755'},  # Existing
-]
-
-COMMIT_DOCS_WITH_ERRORS = [
-    '0',                                                                                    # Error
-    {'parent': 'elasticsearch-dsl-py', '_id': '3ca6e1e73a071a705b4babd2f581c91a2a3e5037'},  # Existing
-    'f',                                                                                    # Error
-    {'parent': 'elasticsearch-dsl-py', '_id': 'eb3e543323f189fd7b698e66295427204fff5755'},  # Existing
-]
 
 def test_mget(data_client):
     commits = Commit.mget(COMMIT_DOCS_WITH_MISSING)

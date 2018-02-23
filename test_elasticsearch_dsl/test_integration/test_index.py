@@ -1,4 +1,5 @@
 from elasticsearch_dsl import DocType, Index, Text, Keyword, Date, analysis
+from elasticsearch_dsl.async import ASYNC_SUPPORTED
 
 class Post(DocType):
     title = Text(analyzer=analysis.analyzer('my_analyzer', tokenizer='keyword'))
@@ -7,6 +8,10 @@ class Post(DocType):
 class User(DocType):
     username = Keyword()
     joined_date = Date()
+
+if ASYNC_SUPPORTED:
+    from . import _test_integration_async
+    test_index_exists_async = _test_integration_async.test_index_exists
 
 def test_index_exists(write_client):
 

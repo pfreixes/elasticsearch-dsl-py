@@ -11,6 +11,7 @@ from .response import HitMeta
 from .search import Search
 from .connections import connections
 from .exceptions import ValidationException, IllegalOperation
+from .async import isawaitable, future_response, Future
 
 DELETE_META_FIELDS = frozenset((
     'id', 'parent', 'routing', 'version', 'version_type'
@@ -172,15 +173,19 @@ class DocType(ObjectBase):
         ``Elasticsearch.get`` unchanged.
         """
         es = connections.get_connection(using or cls._doc_type.using)
-        doc = es.get(
+        response = es.get(
             index=index or cls._doc_type.index,
             doc_type=cls._doc_type.name,
             id=id,
             **kwargs
         )
-        if not doc['found']:
-            return None
-        return cls.from_es(doc)
+
+        def _build_response(result):
+            if not result['found']:
+                return None
+            return cls.from_es(result)
+
+        return _build_response(response) if not isawaitable(response) else future_response(response, _build_response)
 
     @classmethod
     def mget(cls, docs, using=None, index=None, raise_on_error=True,
@@ -211,45 +216,49 @@ class DocType(ObjectBase):
                 for doc in docs
             ]
         }
-        results = es.mget(
+
+        response = es.mget(
             body,
             index=index or cls._doc_type.index,
             doc_type=cls._doc_type.name,
             **kwargs
         )
 
-        objs, error_docs, missing_docs = [], [], []
-        for doc in results['docs']:
-            if doc.get('found'):
-                if error_docs or missing_docs:
-                    # We're going to raise an exception anyway, so avoid an
-                    # expensive call to cls.from_es().
-                    continue
+        def _build_response(result):
+            objs, error_docs, missing_docs = [], [], []
+            for doc in result['docs']:
+                if doc.get('found'):
+                    if error_docs or missing_docs:
+                        # We're going to raise an exception anyway, so avoid an
+                        # expensive call to cls.from_es().
+                        continue
 
-                objs.append(cls.from_es(doc))
+                    objs.append(cls.from_es(doc))
 
-            elif doc.get('error'):
-                if raise_on_error:
-                    error_docs.append(doc)
-                if missing == 'none':
+                elif doc.get('error'):
+                    if raise_on_error:
+                        error_docs.append(doc)
+                    if missing == 'none':
+                        objs.append(None)
+
+                # The doc didn't cause an error, but the doc also wasn't found.
+                elif missing == 'raise':
+                    missing_docs.append(doc)
+                elif missing == 'none':
                     objs.append(None)
 
-            # The doc didn't cause an error, but the doc also wasn't found.
-            elif missing == 'raise':
-                missing_docs.append(doc)
-            elif missing == 'none':
-                objs.append(None)
+            if error_docs:
+                error_ids = [doc['_id'] for doc in error_docs]
+                message = 'Required routing/parent not provided for documents %s.'
+                message %= ', '.join(error_ids)
+                raise RequestError(400, message, error_docs)
+            if missing_docs:
+                missing_ids = [doc['_id'] for doc in missing_docs]
+                message = 'Documents %s not found.' % ', '.join(missing_ids)
+                raise NotFoundError(404, message, missing_docs)
+            return objs
 
-        if error_docs:
-            error_ids = [doc['_id'] for doc in error_docs]
-            message = 'Required routing/parent not provided for documents %s.'
-            message %= ', '.join(error_ids)
-            raise RequestError(400, message, error_docs)
-        if missing_docs:
-            missing_ids = [doc['_id'] for doc in missing_docs]
-            message = 'Documents %s not found.' % ', '.join(missing_ids)
-            raise NotFoundError(404, message, missing_docs)
-        return objs
+        return _build_response(response) if not isawaitable(response) else future_response(response, _build_response)
 
     @classmethod
     def from_es(cls, hit):
@@ -367,16 +376,22 @@ class DocType(ObjectBase):
             for k in DOC_META_FIELDS
             if k in self.meta
         )
-        meta = es.update(
+
+        response = es.update(
             index=self._get_index(index),
             doc_type=self._doc_type.name,
             body={'doc': fields},
             **doc_meta
         )
-        # update meta information from ES
-        for k in META_FIELDS:
-            if '_' + k in meta:
-                setattr(self.meta, k, meta['_' + k])
+
+        def _set_meta(meta):
+            # update meta information from ES
+            for k in META_FIELDS:
+                if '_' + k in meta:
+                    setattr(self.meta, k, meta['_' + k])
+
+        return _set_meta(response) if not isawaitable(response) else future_response(response, _set_meta)
+
 
     def save(self, using=None, index=None, validate=True, **kwargs):
         """
@@ -403,16 +418,21 @@ class DocType(ObjectBase):
             if k in self.meta
         )
         doc_meta.update(kwargs)
-        meta = es.index(
+
+        response = es.index(
             index=self._get_index(index),
             doc_type=self._doc_type.name,
             body=self.to_dict(),
             **doc_meta
         )
-        # update meta information from ES
-        for k in META_FIELDS:
-            if '_' + k in meta:
-                setattr(self.meta, k, meta['_' + k])
 
-        # return True/False if the document has been created/updated
-        return meta['created']
+        def _set_meta(meta):
+            # update meta information from ES
+            for k in META_FIELDS:
+                if '_' + k in meta:
+                    setattr(self.meta, k, meta['_' + k])
+
+            # return True/False if the document has been created/updated
+            return meta['created']
+
+        return _set_meta(response) if not isawaitable(response) else future_response(response, _set_meta)

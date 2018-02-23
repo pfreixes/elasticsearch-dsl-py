@@ -1,5 +1,6 @@
 from .connections import connections
 from .search import Search
+from .async import isawaitable, future_response
 
 class Index(object):
     def __init__(self, name, using='default'):
@@ -165,7 +166,8 @@ class Index(object):
         Any additional keyword arguments will be passed to
         ``Elasticsearch.indices.exists`` unchanged.
         """
-        return self.connection.indices.exists(index=self._name, **kwargs)
+        response = self.connection.indices.exists(index=self._name, **kwargs)
+        return response if not isawaitable(response) else future_response(response, lambda r: r)
 
     def refresh(self, **kwargs):
         """
@@ -174,7 +176,8 @@ class Index(object):
         Any additional keyword arguments will be passed to
         ``Elasticsearch.indices.refresh`` unchanged.
         """
-        return self.connection.indices.refresh(index=self._name, **kwargs)
+        response = self.connection.indices.refresh(index=self._name, **kwargs)
+        return response if not isawaitable(response) else future_response(response, lambda r: r)
 
     def flush(self, **kwargs):
         """
@@ -183,7 +186,8 @@ class Index(object):
         Any additional keyword arguments will be passed to
         ``Elasticsearch.indices.flush`` unchanged.
         """
-        return self.connection.indices.flush(index=self._name, **kwargs)
+        response = self.connection.indices.flush(index=self._name, **kwargs)
+        return response if not isawaitable(response) else future_response(response, lambda r: r)
 
     def open(self, **kwargs):
         """
@@ -192,7 +196,8 @@ class Index(object):
         Any additional keyword arguments will be passed to
         ``Elasticsearch.indices.open`` unchanged.
         """
-        return self.connection.indices.open(index=self._name, **kwargs)
+        response = self.connection.indices.open(index=self._name, **kwargs)
+        return response if not isawaitable(response) else future_response(response, lambda r: r)
 
     def close(self, **kwargs):
         """
@@ -201,7 +206,8 @@ class Index(object):
         Any additional keyword arguments will be passed to
         ``Elasticsearch.indices.close`` unchanged.
         """
-        return self.connection.indices.close(index=self._name, **kwargs)
+        response = self.connection.indices.close(index=self._name, **kwargs)
+        return response if not isawaitable(response) else future_response(response, lambda r: r)
 
     def create(self, **kwargs):
         """

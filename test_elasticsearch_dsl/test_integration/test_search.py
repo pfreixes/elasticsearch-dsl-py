@@ -4,10 +4,12 @@ from elasticsearch import TransportError
 from elasticsearch_dsl import Search, DocType, Date, Text, Keyword, MultiSearch, \
     MetaField, Index, Q
 from elasticsearch_dsl.response import aggs
+from elasticsearch_dsl.async import ASYNC_SUPPORTED
 
 from .test_data import DATA
 
 from pytest import raises
+
 
 class Repository(DocType):
     created_at = Date()
@@ -23,6 +25,12 @@ class Commit(DocType):
         doc_type = 'commits'
         index = 'git'
         parent = MetaField(type='repos')
+
+if ASYNC_SUPPORTED:
+    from . import _test_integration_async
+    test_search_async = _test_integration_async.test_search
+    test_msearch_async = _test_integration_async.test_msearch
+    test_suggest_async = _test_integration_async.test_suggest
 
 def test_top_hits_are_wrapped_in_response(data_client):
     s = Commit.search()[0:0]

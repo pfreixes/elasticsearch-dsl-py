@@ -2,8 +2,9 @@
 
 import os
 
-from elasticsearch.helpers.test import get_test_client, SkipTest
 from elasticsearch.helpers import bulk
+from elasticsearch.helpers.test import get_test_client, SkipTest
+from elasticsearch_dsl.async import ASYNC_SUPPORTED
 
 from pytest import fixture, yield_fixture, skip
 from mock import Mock
@@ -122,6 +123,14 @@ def dummy_response():
       "timed_out": False,
       "took": 123
     }
+
+
+@fixture
+def dummy_response_msearch(dummy_response):
+    return {
+        "responses": [dummy_response, dummy_response]
+    }
+ 
 
 @fixture
 def aggs_search():
